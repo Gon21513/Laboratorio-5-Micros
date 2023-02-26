@@ -1,0 +1,430 @@
+;Universidad del Valle de Guatemala
+;IE2023 Programación de Microncontroladores
+;Autor: LUIS PEDRO GONZALEZ 21513
+;Compilador: PIC-AS (v2.40), MPLAB X IDE (v6.00)
+;Proyecto: Laboratorio 5
+;Creado: 03/02/2023
+;Última Modificación: 03/02/2023
+; Entrega postlab5
+;---------------------------------------------------
+PROCESSOR 16F887
+#include <xc.inc>
+;---------------------------------------------------
+;Palabra de Configuración
+;---------------------------------------------------
+   
+; CONFIG1
+  CONFIG  FOSC = INTRC_NOCLKOUT   ; Oscillator Selection bits (INTOSC oscillator: CLKOUT function on RA6/OSC2/CLKOUT pin, I/O function on RA7/OSC1/CLKIN)
+  CONFIG  WDTE = OFF              ; Watchdog Timer Enable bit (WDT disabled and can be enabled by SWDTEN bit of the WDTCON register)
+  CONFIG  PWRTE = ON             ; Power-up Timer Enable bit (PWRT disabled)
+  CONFIG  MCLRE = OFF             ; RE3/MCLR pin function select bit (RE3/MCLR pin function is digital input, MCLR internally tied to VDD)
+  CONFIG  CP = OFF                ; Code Protection bit (Program memory code protection is disabled)
+  CONFIG  CPD = OFF               ; Data Code Protection bit (Data memory code protection is disabled)
+  CONFIG  BOREN = ON             ; Brown Out Reset Selection bits (BOR controlled by SBOREN bit of the PCON register)
+  CONFIG  IESO = OFF              ; Internal External Switchover bit (Internal/External Switchover mode is disabled)
+  CONFIG  FCMEN = OFF             ; Fail-Safe Clock Monitor Enabled bit (Fail-Safe Clock Monitor is disabled)
+  CONFIG  LVP = OFF               ; Low Voltage Programming Enable bit (RB3 pin has digital I/O, HV on MCLR must be used for programming)
+
+; CONFIG2
+  CONFIG  BOR4V = BOR40V          ; Brown-out Reset Selection bit (Brown-out Reset set to 4.0V)
+  CONFIG  WRT = OFF               ; Flash Program Memory Self Write Enable bits (Write protection off)
+ 
+
+PSECT udata_bank0
+  VALOR: DS 1;separdor de nibbles
+  BANDERA: DS 1;chequeo de display
+  NIBBLE: DS 2; guarda nibbles
+  VAL_DISPLAY: DS 3;gurada valor para mostrar
+  UP EQU 6 ; DECLARAN CONSTANTES PARA LOS PUERTOS
+  DOWN    EQU 7
+  VERIFICADOR: DS 1 ; 1 BYTE antirebote
+  
+  CENTENAS: DS 1 ; ALMACENA CENTENAS
+  DECENAS: DS 1; ALMACENA DECENAS
+  UNIDADES: DS 1; ALMACENA UNIDADES
+    
+ 
+;/////////////VARIABLES
+PSECT udata_shr
+    W_TEMP: DS 1; 1 BYTE
+    STATUS_TEMP: DS 1; 1 BYTE
+
+
+   
+;-------------- vector reset----------
+PSECT resVect, class=CODE, abs, delta=2
+ORG 00h ; posición 0000h para el reset
+resetVect:
+    PAGESEL main
+    goto main
+
+;--------------INTERRUPCIONES----------
+PSECT intVect, class=CODE, abs, delta=2
+ORG 04h ; POSICION DE LA INTERRUPCION
+
+PUSH:
+    MOVWF W_TEMP    ;PONER EL VALOR DEL W EN EN WTEMP,ES DECIR LA VARIABLE TEMPORAL
+    SWAPF STATUS, W    ;HACER SWAP Y GUARDAR EN W
+    MOVWF STATUS_TEMP    ;MOVER EL VALOR DE W EN LA OTRA VARIABLE TEMPORAL
+
+ISR: 
+    BTFSC RBIF    ;REVISAR EL BIT DE INTERRUPCIONES DEL PUERTO B
+    CALL INT_PORTB  ;IR A LA SUBRUTINA DE PORTB
+    
+    BTFSC T0IF ; REVISAR EL BIT DE INTERRUPCIONES DEL TMR0
+    CALL INT_TMR0
+
+
+ 
+POP:
+    SWAPF STATUS_TEMP, W    ;CAMBIAR EL VALOR DE STATUS CON W
+    MOVWF STATUS    ;CARGAR EL VALOR DEL STATUS, ES DECIR, W A STTUS
+    SWAPF W_TEMP, F    ;CAMBIAR STATUS_TEMP DE W A F PARA QUE ESTEN EN ORDEN AL MOVERLOS
+    SWAPF W_TEMP, W    ;MOVER EL VALOR DE W A W, SE ROTA DE NUEVO PARA NO MODIFICAR EL ORDEN Y GUARDAR EN W
+    RETFIE    ;REGRESAR DE LA INTERRUPCIóN
+
+;------------------SUBRUTINAS--------------------
+   
+///////////////////////////////////////////////////////////////
+///////////////////////INTERRUPCION DEL TMR0//////////////////////
+////////////////////////////////////////////////////////////
+INT_TMR0:
+     /////// // RE INICIO EL TMR0//////////////
+    BANKSEL TMR0 ; SELCCIONA EL TMR0
+    //0.002 SEG = 4*1/4MHZ*256-N*256 Y SE DESPEJO N
+    MOVLW 216 ; DELAY DE 2MS
+    MOVWF TMR0 ; CARGAR EL VALOR AL TMRO
+    BCF T0IF ; LIMPIAMOS LA BANDER DE INTERRUPCION DEL TMR0
+    CALL CHOOSEDISP ; LLAMAMR A LA SUBRUTINA DE SELECCION
+    RETURN
+    
+    
+   
+    //CLRF PORTD ; LIMPIAR PORTD PARA EVITAR TRALAPES
+    //BTFSC BANDERA, 0;  CHEQUEAR BANDERA
+    //GOTO  DISPLAY2; IR A SUBRUTINA DE DISPLAY1
+    
+ CHOOSEDISP:
+    //LIMPIAR LOS PUERTOS 
+   BCF PORTD, 5
+   BCF PORTD, 6 
+   BCF PORTD, 7 
+   
+       //CHEQUEAR EL ESTADO DE LA BANDERA
+   BTFSC BANDERA, 1
+   GOTO DISPLAY3 
+   BTFSC BANDERA, 0
+   GOTO DISPLAY1
+   GOTO DISPLAY2
+   RETURN
+    
+   
+DISPLAY1:
+   MOVF VAL_DISPLAY, W ; MOVER EL VALOR DEL DISPLAY A W
+   MOVWF PORTC ; MOVER EL VALOR A PORTC
+   BSF PORTD, 6; ENCEDER EL PORTD6
+   
+   BCF BANDERA, 0 ; LIMPIAR BANDERA EN BIT 0
+   BSF BANDERA, 1 ; ACTIVAR BANDER EN BIT 1
+   RETURN
+   //GOTO NEXTDISPLAY
+   
+DISPLAY2:
+    MOVF VAL_DISPLAY+1, W; MOVER EL VALOR DEL DISPLAY A W
+    MOVWF PORTC; MOVER EL VALOR DE W A PORTC
+    BSF PORTD, 7; ENCEDER PORTD7
+    BSF BANDERA, 0 ; CAMBIAR LA BANDERA
+    RETURN
+    
+DISPLAY3:
+    MOVF VAL_DISPLAY+2, W ;MOVER EL VALOR DEL DISPLAY A W
+    MOVWF PORTC ; MOVER EL VALOR DE 
+    BSF PORTD, 5 ; ENCENDER EL PORTD5
+    BCF BANDERA, 0 ; LIMPIAR LA BANDERA 
+    BCF BANDERA, 1 ; LIMPIAR BANDERA
+    RETURN 
+   
+ //NEXTDISPLAY:
+  //   MOVLW 1 ; MOVER 1 COMO LITERAL A W
+   //  XORWF BANDERA, F; HACER UN XOR CON EL CONTENIFO DE LA BANDERA Y 1 Y ALMACENAR EN LA BANDERA 
+  //   RETURN
+
+///////////////////////////////////////////////////////////////
+/////////INTERRUPCION DEL PUERTO B(PUSHBUTTONS)///////////
+///////////////////////////////////////////////////////////
+INT_PORTB:
+   
+    //BANKSEL PORTA; LLAMR AL BANCO
+   
+    BTFSS RBIF
+    RETURN
+    BANKSEL PORTB
+    BTFSC PORTB, UP ; REVISAR SI SE PRESIONA EL BOTON
+    CALL VERIFICADOR1 ; LLAMAR AL ANTIRREBOTE
+    BTFSS PORTB, UP ; REVISAR SI SE DEJA DE PRESIONAR
+    CALL INCREMENTO
+   
+    BTFSC PORTB, DOWN;REVISAR SI EL BOTóN DE DECREMENTAR FUE PRESIONADO
+    CALL VERIFICADOR2 ; LLAMAR AL ANTIREBOTE
+    BTFSS PORTB, DOWN ; REVIAR SI SE DEJA DE PRESIONAR
+    CALL DECREMENTO
+    BCF RBIF    ;LIMPIAR BIT DE INTERRUPCIóN DEL PUERTO B
+    RETURN    ;REGRESAR
+   
+   
+////////////////////ANTIREBOTES/////////////////////////////
+ 
+VERIFICADOR1:;ANTIRREBOTE 1
+    BSF VERIFICADOR, 0
+    RETURN
+   
+VERIFICADOR2:
+    BSF VERIFICADOR, 1
+    RETURN
+;   
+;   
+;////////////////////////////SUBRUTUNAS DE INC Y DEC
+INCREMENTO:    
+    BTFSS VERIFICADOR, 0 ; REVISAR BANDERA
+    RETURN
+    INCF PORTA, F ; INCREMETAR EL PORTA
+    CLRF VERIFICADOR ;LIMPIRAR LA BANDERA
+    RETURN
+
+DECREMENTO:
+    BTFSS VERIFICADOR, 1    ;FUNCION DE DECREMENTAR
+    RETURN
+    DECF PORTA, F ; DECREMNTAR PORT A
+    CLRF VERIFICADOR
+    RETURN  
+   
+   
+   
+;----------- Código Principal ----------
+PSECT CODE, delta=2, abs
+ ORG 100h
+ 
+ TABLA:
+    CLRF PCLATH ; limpiar pclath
+    BSF PCLATH, 0 ; estbalecel el bit 0 de pclath, es decir en 01
+   
+    ANDLW 0x0F     ; 15 A W PARA ESTABLECER LIMITE Y QUE W SOLO TENGA LOS 4 BITS MENOS SINIFICATIVOS
+    ADDWF PCL      ;SUMA EL PCL Y W, ASI PC = PCLATH+PCL+W, INDICA POSICION EN PC
+    RETLW 00111111B ;0
+    RETLW 00000110B ;1
+    RETLW 01011011B ;2
+    RETLW 01001111B ;3
+    RETLW 01100110B ;4
+    RETLW 01101101B ;5
+    RETLW 01111101B ;6
+    RETLW 00000111B ;7
+    RETLW 01111111B ;8
+    RETLW 01100111B ;9
+    RETLW 01110111B ;A
+    RETLW 01111100B ;B
+    RETLW 00111001B ;C
+    RETLW 01011110B ;D
+    RETLW 01111001B ;E
+    RETLW 01110001B ;F
+   
+; CONFIGURACIONES
+   
+main:
+   
+///////////////////////////////////////////////////////////
+ ///////////CONFIGURACION DE PUERTOS
+ //////////////////////////////////////
+BANKSEL ANSEL ; INGRESAR AL BANCO DE ANSEL
+CLRF ANSEL
+CLRF ANSELH ;CONGIFURAR PUERTOS COMO DIGITALES
+   
+       
+;PONER  PUERTO COMO SALIDAS
+BANKSEL TRISA
+CLRF TRISA      ;PUERTO A COMO SALIDA
+CLRF TRISC ; PUERTO C COMO SALID
+BCF TRISD, 5
+BCF TRISD, 6
+BCF TRISD, 7 ; PUERTOS 5,6,7 E D COMO SALIDAS
+
+BANKSEL TRISB
+BSF TRISB,UP      ;RD6 COMO ENTRADA push buttons
+BSF TRISB, DOWN      ;RA7 COMO ENTRADA
+   
+    ;INICIAR PUERTOS
+BANKSEL PORTA     ;ir al banco de puertos
+CLRF PORTA        ;inicia puerto a
+CLRF PORTB ; INICIA EL PUERTO B
+CLRF PORTC ; INICIA EL PUERTO C
+CLRF PORTD; INICIA EL PUERTO C
+CLRF BANDERA 
+   
+ 
+   
+//////////////////////////////////////////////
+/////INTERRUPCIONES DEL PORTB ON CHANGE
+/////////////////////////////////////////////////////////////
+BANKSEL IOCB ;ABRIR EL BANCO DONDE SE CONFIGURAN LS INTERRUPCIONED
+   
+BSF IOCB, UP ;PORTB6 INTERRUPCION PARA PUSHBUTTON
+BSF IOCB, DOWN; PORTB7 INTERRUPCION PARA PUSHBUTTON
+   
+BANKSEL PORTA
+MOVF PORTB, W ; CARGAR EL VALOR DE PORTB A W PARA FINALIZAR MISMATCH
+BCF RBIF ; LIMPIAR LA BANDER DE INT ON CHANGE DE PORTB
+   
+   
+/////////////////////////////////////////////////////
+/////////////////PULL UPS
+/////////////////////////////////////////////////////
+BANKSEL OPTION_REG
+BCF OPTION_REG, 7    ;SE LIMPIA RBPU PARA USAR PULL UPS
+BANKSEL WPUB    ;DETERMINAR PINES QUE VAN A LLEVAR PULL-UPS
+BSF WPUB, UP    ; PULL-UP
+BSF WPUB, DOWN    ; PULL-UP
+   
+   
+/////////////////////////////////////////////////////////
+ //configuracion del oscilador
+/////////////////////////////////////////////////////////
+// 4MHZ COMO OSCILADOR
+BANKSEL OSCCON ; aqui se encuentra la configurcion del oscildor
+BSF IRCF2 ; 1 en el bit 6
+BSF IRCF1 ;1 en el bit 5
+BCF IRCF0 ; 0  en el bit 4
+BSF SCS ; selecciona el oscilador interno
+
+   
+ ///////////////////////////////////////////////////////////////////////////////
+    //CONFIGURACION DEL TMR0
+    ////////////////////////////////////////////////////////////
+BANKSEL TRISA ; SELECCIONAR EL OR
+    ;TMR0 RATE 1:256 ES 111 eb=n datasheet
+    ;Prescaler Assignment bit
+BCF PSA ;SE LE ASIGNA EL PRESCALER AL TIMER, PRE EN 0
+BSF PS2 ; PS2 EN 1
+BSF PS1; PS1 EN 1
+BSF PS0 ; PS0 EN 1
+BCF T0CS ; PONER T0CS EN 0 PARA QUE OPERE COMO TIMER,  Timer0 Clock Source Select bit    
+
+
+ 
+    ///////////////////////////////////////////////////
+    //////////////INTERRUPCIONES GLOBALES
+    /////////////////////////////////////////////
+   
+BANKSEL INTCON
+BSF GIE ; HABILTAR LAS INTERUPPCIONES GLOBALES
+BSF T0IE ; ACTIVAR INTERRUPCION DEL TMR0
+BCF T0IF ;BANDERA DEL TMR0
+    
+BSF RBIE ; ACTIVAR EL CAMBIO DE INTERRUPCIONES EN PORTB
+BCF RBIF ; LIMPIAR LA BANDER DE PORTB
+    
+//////////////////////////////////////
+/////////// INICIO EL TMR0///////////////////////
+//////////////////////////////////////////////////
+BANKSEL TMR0 ; SELCCIONA EL TMR0
+    //0.002 SEG = 4*1/4MHZ*256-N*256 Y SE DESPEJO N
+MOVLW 216 ; DELAY DE 2MS
+MOVWF TMR0 ; CARGAR EL VALOR AL TMRO
+BCF T0IF ; LIMPIAR LA BANDERA DE OVERFLOW DEL TMR0
+   
+ 
+
+////////////////////////LOOP PRINCIPAL//////////////    
+LOOP:
+    //MOVLW 0x24 ; CARGAR VALOR
+    MOVF PORTA, W ; MOVER EL VALOR DE PORTA A W
+    MOVWF VALOR ; MOVELR EL VSLOR DE W A LA VARIABLE
+    //CALL SEPNIBBLES ;LLAMAR A LA SUBRUTINA PARA SEPERAR NIBBLES
+    //CALL PREPDISPLAY ; LLAMAR A LA SUBRUTINA PARA PREPARAR LOS DISPLAYS
+    CALL PREPDISPLAY2 ; LLAMR A LA SUBRUTINAS QUE PREPAR DISPLAY
+    
+    
+    ;LIMPIAR LAS VARIABLES
+    CLRF CENTENAS
+    CLRF DECENAS
+    CLRF UNIDADES
+    
+    
+    
+    CALL SUB_CENTENAS; LLAMAR A LA SUBRUTINA QUE CONVUERTE EN CENTENAS
+    CALL SUB_DECENAS ; LLAMAR A LA SUBRUTINA QUE CONVIERTE EN DECENAS
+    CALL SUB_UNIDADES ;LLAMAR A LA SUBRUTINA QUE CONVIERTE EN UNIDADES
+    
+    
+    GOTO LOOP
+   
+;SEPNIBBLES:
+;    MOVF VALOR, W ; MOVER EL VALOR A W
+;    ANDLW 0x0f ; hacer un and con los bits
+;    MOVWF NIBBLE ; MOVER W A VARIABLLE NIBBLE
+;    SWAPF VALOR, W ; HCAER UN SWAP DEL VALOR CON W
+;    ANDLW 0x0f ;SE HACE UN AND CON LO OTROS BIT, ES DECIR CON W -> VALOR
+;    MOVWF NIBBLE+1; SE GUARDAN EN EL SEGUNDO 
+;    RETURN
+;   
+;PREPDISPLAY:
+;    MOVF NIBBLE, W ; MOVER EL VALOR DE NIBBLE A W
+;    CALL TABLA ; LLAMAR A LA TABLA
+;    MOVWF VAL_DISPLAY; MOVER W A LA VARIABLEW
+;   
+;    MOVF NIBBLE+1, W ; MOVER EL VALOR DE NIBBLE A W
+;    CALL TABLA ; LLAMAR A LA TABLA
+;    MOVWF VAL_DISPLAY+1; MOVER W A LA VARIABLEW
+;    RETURN
+    
+ PREPDISPLAY2:
+    MOVF DECENAS, W ; MOVEMOS LAS DECENAS A W
+    CALL TABLA ; LLAMAR A LA TABLA
+    MOVWF VAL_DISPLAY ; GUARDAR EN LA VARIABLE DE DISPLAY
+    
+    MOVF CENTENAS, W ; MOVEMOS LAS DECENAS A W
+    CALL TABLA ; LLAMAR A LA TABLA
+    MOVWF VAL_DISPLAY+1 ; GUARDAR EN LA VARIABLE DE DISPLAY
+
+    MOVF UNIDADES, W ; MOVEMOS LAS DECENAS A W
+    CALL TABLA ; LLAMAR A LA TABLA
+    MOVWF VAL_DISPLAY+2 ; GUARDAR EN LA VARIABLE DE DISPLAY
+   
+    RETURN
+    
+    
+    //////////////////////////////////SUBRUTINAS DE CONVERSION
+    
+ SUB_CENTENAS:
+    MOVLW 100 ; CARGA 100 EN W
+    SUBWF VALOR, F ; RESTA 100 A LA VARIABLE DE VALOR Y GUARDA EN VALOR
+    INCF CENTENAS ; INCEMENTA LAS CENTENAS
+    BTFSC STATUS, 0 ; C CHEQUEAR LA BANDERA DE CARRY
+    GOTO $-4 ; VOLVER A EJECUTAR
+    DECF CENTENAS ; DECREMENTAR EN 1 LAS CENTENAS
+    MOVLW 100 ; CARGARMOS 100 A W
+    ADDWF VALOR, F ; SUMAMOS 100 A VALUE PARA NO VOLVER A ACTIVAR EL CARRY 
+    RETURN 
+    
+ SUB_DECENAS:
+    MOVLW 10 ; CARGA 10 EN W
+    SUBWF VALOR, F ; RESTA 10 A LA VARIABLE DE VALOR Y GUARDA EN VALOR
+    INCF DECENAS ; INCEMENTA LAS CENTENAS
+    BTFSC STATUS, 0 ; C CHEQUEAR LA BANDERA DE CARRY
+    GOTO $-4 ; VOLVER A EJECUTAR
+    DECF DECENAS ; DECREMENTAR EN 1 LAS CENTENAS
+    MOVLW 10 ; CARGARMOS 10 A W
+    ADDWF VALOR, F ; SUMAMOS 10 A VALUE PARA NO VOLVER A ACTIVAR EL CARRY 
+    RETURN 
+    
+ SUB_UNIDADES:
+    MOVLW 1 ; CARGA 1 EN W
+    SUBWF VALOR, F ; RESTA 1 A LA VARIABLE DE VALOR Y GUARDA EN VALOR
+    INCF UNIDADES ; INCEMENTA LAS CENTENAS
+    BTFSC STATUS, 0 ; C CHEQUEAR LA BANDERA DE CARRY
+    GOTO $-4 ; VOLVER A EJECUTAR
+    DECF UNIDADES ; DECREMENTAR EN 1 LAS CENTENAS
+    MOVLW 1 ; CARGARMOS 1 A W
+    ADDWF VALOR, F ; SUMAMOS 100 A VALUE PARA NO VOLVER A ACTIVAR EL CARRY 
+    RETURN 
+END
+
+
